@@ -4,7 +4,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <pthread.h>
-#include </opt/homebrew/opt/libftdi/include/libftdi1/ftdi.h>
+#include <libftdi1>
 
 #define DMX_CHANNELS 512
 #define PORT 5005
