@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 #include <string.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <arpa/inet.h>
 
 #define DMX_CHANNELS 512
 #define PORT 5005
@@ -19,61 +19,51 @@ void initialize_dmx_data(unsigned char *dmx_data) {
     }
 }
 
-int open_serial_port(const char *device) {
-    int fd = open(device, O_RDWR | O_NOCTTY | O_SYNC);
-    if (fd < 0) {
-        perror("Unable to open serial port");
-        exit(EXIT_FAILURE);
-    }
-
+void configure_serial_port(int fd) {
     struct termios tty;
-    memset(&tty, 0, sizeof(tty));
+
+    memset(&tty, 0, sizeof tty);
     if (tcgetattr(fd, &tty) != 0) {
-        perror("Error from tcgetattr");
-        close(fd);
+        perror("tcgetattr failed");
         exit(EXIT_FAILURE);
     }
 
     cfsetospeed(&tty, B250000);
     cfsetispeed(&tty, B250000);
 
-    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
-    tty.c_iflag &= ~IGNBRK;               
-    tty.c_lflag = 0;                   
-    tty.c_oflag = 0;                     
-    tty.c_cc[VMIN] = 1;                    
-    tty.c_cc[VTIME] = 5;                
+    tty.c_cflag |= (CLOCAL | CREAD);   
+    tty.c_cflag &= ~CSIZE;
+    tty.c_cflag |= CS8;             
+    tty.c_cflag &= ~PARENB;     
+    tty.c_cflag &= ~CSTOPB;   
+    tty.c_cflag &= ~CRTSCTS;   
 
-    tty.c_cflag |= (CLOCAL | CREAD);         
-    tty.c_cflag &= ~(PARENB | PARODD);     
-    tty.c_cflag |= 0;
-    tty.c_cflag &= ~CSTOPB;
-    tty.c_cflag &= ~CRTSCTS;
+    tty.c_cc[VMIN]  = 1;    
+    tty.c_cc[VTIME] = 5;           
 
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        perror("Error from tcsetattr");
-        close(fd);
+        perror("tcsetattr failed");
         exit(EXIT_FAILURE);
     }
 
-    return fd;
+    tcflush(fd, TCIOFLUSH);
 }
 
 void send_dmx(int fd, unsigned char *dmx_data) {
     unsigned char break_signal = 0x00;
+    struct termios tty;
 
-    tcflush(fd, TCOFLUSH);               
-
-    cfsetospeed(&tty, B9600);              
+    tcgetattr(fd, &tty);
+    cfsetospeed(&tty, B9600);
     cfsetispeed(&tty, B9600);
     tcsetattr(fd, TCSANOW, &tty);
-    write(fd, &break_signal, 1);           
-    usleep(100);                         
+    write(fd, &break_signal, 1);
+    usleep(100); // 100us break time
 
-    cfsetospeed(&tty, B250000);               
+    cfsetospeed(&tty, B250000);
     cfsetispeed(&tty, B250000);
     tcsetattr(fd, TCSANOW, &tty);
-    write(fd, dmx_data, DMX_CHANNELS);         
+    write(fd, dmx_data, DMX_CHANNELS);
 
     printf("DMX Data Sent: ");
     for (int i = 0; i < DMX_CHANNELS; i++) {
@@ -83,7 +73,7 @@ void send_dmx(int fd, unsigned char *dmx_data) {
 }
 
 void *send_dmx_thread(void *arg) {
-    int fd = *((int *)arg);
+    int fd = *(int *)arg;
     while (1) {
         pthread_mutex_lock(&dmx_mutex);
         unsigned char data[DMX_CHANNELS];
@@ -97,9 +87,14 @@ void *send_dmx_thread(void *arg) {
 }
 
 int main() {
-    const char *serial_port = "/dev/ttyS0";
-    int fd = open_serial_port(serial_port);
+    const char *com_port = "/dev/ttyUSB0";
+    int fd = open(com_port, O_RDWR | O_NOCTTY | O_SYNC);
+    if (fd < 0) {
+        perror("open COM port failed");
+        return EXIT_FAILURE;
+    }
 
+    configure_serial_port(fd);
     initialize_dmx_data(dmx_data);
     pthread_mutex_init(&dmx_mutex, NULL);
 
